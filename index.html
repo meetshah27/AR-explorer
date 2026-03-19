@@ -656,6 +656,7 @@ function directionLabel(deg) {
 // ─────────────────────────────────────────────
 async function fetchPlaces(lat, lng) {
   if (USE_DEMO_MODE) {
+    print("using demo");
     places = getDemoPlaces(lat, lng);
     document.getElementById('demo-badge').style.display = 'block';
     updatePlacesCount();
