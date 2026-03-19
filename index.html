@@ -505,6 +505,39 @@
   </div>
 </div>
 
+<!-- iOS Compass Permission Screen -->
+<div id="compass-screen" style="
+  display:none;
+  position:fixed;
+  inset:0;
+  z-index:101;
+  background:var(--dark);
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:24px;
+  padding:40px;
+  text-align:center;
+">
+  <div style="font-size:52px; animation: floatIcon 3s ease-in-out infinite;">🧭</div>
+  <div class="status-title">Allow Compass</div>
+  <div class="status-sub">
+    iPhone requires a separate tap to enable the compass.<br><br>
+    Tap the button below and select <strong style="color:#00ffe0">"Allow"</strong> when prompted.
+  </div>
+  <button class="status-btn" id="compass-btn">Enable Compass</button>
+  <button id="skip-compass-btn" style="
+    background:transparent;
+    border:1px solid rgba(255,255,255,0.15);
+    border-radius:12px;
+    padding:10px 24px;
+    color:rgba(255,255,255,0.4);
+    font-family:'Syne',sans-serif;
+    font-size:13px;
+    cursor:pointer;
+  ">Skip (labels will rotate automatically)</button>
+</div>
+
 <script>
 // ─────────────────────────────────────────────
 //  STATE
@@ -654,18 +687,27 @@ function updateCompass(h) {
 // ─────────────────────────────────────────────
 //  ORIENTATION — iOS + Android
 // ─────────────────────────────────────────────
-function initOrientation() {
-  function handleOrientation(e) {
-    let h = null;
+// Raw orientation data for debugging
+let rawOrientation = { alpha: '–', beta: '–', gamma: '–', webkit: '–', absolute: '–', eventFired: false };
 
-    if (typeof e.webkitCompassHeading === 'number') {
-      // iOS — most accurate
+function attachOrientationListener() {
+  function handleOrientation(e) {
+    // Store raw values so we can see them in debug
+    rawOrientation = {
+      alpha:   e.alpha   !== null ? e.alpha.toFixed(1)   : 'null',
+      beta:    e.beta    !== null ? e.beta.toFixed(1)    : 'null',
+      gamma:   e.gamma   !== null ? e.gamma.toFixed(1)   : 'null',
+      webkit:  e.webkitCompassHeading !== undefined ? e.webkitCompassHeading : 'undefined',
+      absolute: String(e.absolute),
+      eventFired: true,
+    };
+
+    let h = null;
+    if (typeof e.webkitCompassHeading === 'number' && !isNaN(e.webkitCompassHeading)) {
       h = e.webkitCompassHeading;
-    } else if (e.absolute === true && typeof e.alpha === 'number') {
-      // Android absolute
+    } else if (e.absolute === true && typeof e.alpha === 'number' && !isNaN(e.alpha)) {
       h = (360 - e.alpha) % 360;
-    } else if (typeof e.alpha === 'number') {
-      // Android fallback
+    } else if (typeof e.alpha === 'number' && !isNaN(e.alpha)) {
       h = (360 - e.alpha) % 360;
     }
 
@@ -675,24 +717,47 @@ function initOrientation() {
       updateCompass(h);
     }
   }
+  window.addEventListener('deviceorientation', handleOrientation, true);
+  window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+}
 
+function initOrientation() {
   if (typeof DeviceOrientationEvent !== 'undefined' &&
       typeof DeviceOrientationEvent.requestPermission === 'function') {
-    // iOS 13+ — must request permission
-    DeviceOrientationEvent.requestPermission()
-      .then(state => {
-        if (state === 'granted') {
-          window.addEventListener('deviceorientation', handleOrientation, true);
-        }
-      })
-      .catch(console.error);
-  } else {
-    // Android
-    window.addEventListener('deviceorientationabsolute', handleOrientation, true);
-    window.addEventListener('deviceorientation', handleOrientation, true);
-  }
+    // iOS 13+ — show dedicated compass screen instead of requesting silently
+    document.getElementById('compass-screen').style.display = 'flex';
 
-  // If compass never fires, slowly rotate so labels appear anyway
+    document.getElementById('compass-btn').addEventListener('click', () => {
+      DeviceOrientationEvent.requestPermission()
+        .then(state => {
+          document.getElementById('compass-screen').style.display = 'none';
+          if (state === 'granted') {
+            attachOrientationListener();
+          } else {
+            startFallback();
+          }
+        })
+        .catch(err => {
+          console.error(err);
+          document.getElementById('compass-screen').style.display = 'none';
+          startFallback();
+        });
+    });
+
+    document.getElementById('skip-compass-btn').addEventListener('click', () => {
+      document.getElementById('compass-screen').style.display = 'none';
+      startFallback();
+    });
+
+  } else {
+    // Android — just attach directly
+    attachOrientationListener();
+    startFallback(); // also start fallback ticker; stops itself once orientation fires
+  }
+}
+
+function startFallback() {
+  // Slowly rotate if compass never fires
   setInterval(() => {
     if (!orientationWorking) {
       heading = (heading + 1) % 360;
@@ -758,6 +823,13 @@ function updateDebug() {
     <b>Places:</b> ${places.length}<br>
     <b>Labels visible:</b> ${Object.keys(labelEls).length}<br>
     <b>FOV:</b> ${HFOV}°<br><br>
+    <b>── Raw Orientation ──</b><br>
+    <b>Event fired:</b> ${rawOrientation.eventFired ? '✅ yes' : '❌ no'}<br>
+    <b>alpha:</b> ${rawOrientation.alpha}<br>
+    <b>beta:</b> ${rawOrientation.beta}<br>
+    <b>gamma:</b> ${rawOrientation.gamma}<br>
+    <b>webkitCompassHeading:</b> ${rawOrientation.webkit}<br>
+    <b>absolute:</b> ${rawOrientation.absolute}<br><br>
     ${topPlaces}
   `;
 }
