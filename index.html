@@ -1,3 +1,4 @@
+<script src="https://maps.googleapis.com/maps/api/js?key=YOUR_KEY&libraries=places"></script>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -578,7 +579,7 @@
 //  CONFIG  — paste your Google Places API key
 // ─────────────────────────────────────────────
 const GOOGLE_API_KEY = 'AIzaSyB0MolCgpg3US6JN21GYrHMGXT3gVAclZ0';
-const USE_DEMO_MODE  = GOOGLE_API_KEY === 'AIzaSyB0MolCgpg3US6JN21GYrHMGXT3gVAclZ0';
+const USE_DEMO_MODE  = GOOGLE_API_KEY === '';
 
 // ─────────────────────────────────────────────
 //  STATE
@@ -655,35 +656,25 @@ function directionLabel(deg) {
 //  FETCH PLACES (Google or Demo)
 // ─────────────────────────────────────────────
 async function fetchPlaces(lat, lng) {
-  if (USE_DEMO_MODE) {
-    print("using demo");
-    places = getDemoPlaces(lat, lng);
-    document.getElementById('demo-badge').style.display = 'block';
-    updatePlacesCount();
-    return;
-  }
-
-  const radius = 500;
-  const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=${radius}&key=${GOOGLE_API_KEY}`;
-  try {
-    const res  = await fetch(url);
-    const data = await res.json();
-    places = (data.results || []).slice(0, 15).map(p => ({
-      name:    p.name,
-      type:    (p.types?.[0] || 'place').replace(/_/g,' '),
-      lat:     p.geometry.location.lat,
-      lng:     p.geometry.location.lng,
-      dist:    haversine(lat, lng, p.geometry.location.lat, p.geometry.location.lng),
-      bearing: bearing(lat, lng, p.geometry.location.lat, p.geometry.location.lng),
-    }));
-    updatePlacesCount();
-  } catch(e) {
-    console.error('Places fetch failed:', e);
-    // Fallback to demo
-    places = getDemoPlaces(lat, lng);
-    document.getElementById('demo-badge').style.display = 'block';
-    updatePlacesCount();
-  }
+  const service = new google.maps.places.PlacesService(
+    document.createElement('div')
+  );
+  service.nearbySearch({
+    location: { lat, lng },
+    radius: 500,
+  }, (results, status) => {
+    if (status === google.maps.places.PlacesServiceStatus.OK) {
+      places = results.slice(0, 15).map(p => ({
+        name: p.name,
+        type: (p.types?.[0] || 'place').replace(/_/g, ' '),
+        lat: p.geometry.location.lat(),
+        lng: p.geometry.location.lng(),
+        dist: haversine(lat, lng, p.geometry.location.lat(), p.geometry.location.lng()),
+        bearing: bearing(lat, lng, p.geometry.location.lat(), p.geometry.location.lng()),
+      }));
+      updatePlacesCount();
+    }
+  });
 }
 
 function updatePlacesCount() {
