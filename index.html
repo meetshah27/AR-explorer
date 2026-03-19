@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>AR Explorer</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --neon: #00ffe0;
+      --neon2: #ff006e;
+      --dark: #050a0e;
+      --glass: rgba(5, 20, 30, 0.55);
+      --glass-border: rgba(0, 255, 224, 0.18);
+    }
+
+    body {
+      background: var(--dark);
+      font-family: 'Syne', sans-serif;
+      color: #fff;
+      overflow: hidden;
+      height: 100dvh;
+      width: 100vw;
+    }
+
+    /* ── CAMERA ── */
+    #camera-feed {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: 0;
+    }
+
+    /* ── OVERLAY CANVAS ── */
+    #overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    /* ── AR LABELS ── */
+    #labels-container {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      pointer-events: none;
+      overflow: hidden;
+    }
+
+    .ar-label {
+      position: absolute;
+      transform: translate(-50%, -100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      pointer-events: all;
+      cursor: pointer;
+      animation: labelPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+      filter: drop-shadow(0 0 12px rgba(0,255,224,0.4));
+    }
+
+    @keyframes labelPop {
+      from { opacity: 0; transform: translate(-50%, -80%) scale(0.7); }
+      to   { opacity: 1; transform: translate(-50%, -100%) scale(1); }
+    }
+
+    .ar-label-card {
+      background: var(--glass);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--glass-border);
+      border-radius: 12px;
+      padding: 10px 16px;
+      min-width: 140px;
+      max-width: 200px;
+      text-align: center;
+      transition: all 0.2s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .ar-label-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--neon), transparent);
+    }
+
+    .ar-label:hover .ar-label-card {
+      background: rgba(0,255,224,0.12);
+      border-color: var(--neon);
+      transform: scale(1.05);
+      filter: drop-shadow(0 0 20px rgba(0,255,224,0.7));
+    }
+
+    .ar-label-name {
+      font-family: 'Syne', sans-serif;
+      font-weight: 800;
+      font-size: 13px;
+      color: #fff;
+      letter-spacing: 0.02em;
+      line-height: 1.2;
+      margin-bottom: 4px;
+    }
+
+    .ar-label-type {
+      font-family: 'Space Mono', monospace;
+      font-size: 9px;
+      color: var(--neon);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      opacity: 0.85;
+    }
+
+    .ar-label-dist {
+      font-family: 'Space Mono', monospace;
+      font-size: 10px;
+      color: rgba(255,255,255,0.6);
+      margin-top: 3px;
+    }
+
+    .ar-label-stem {
+      width: 1px;
+      height: 28px;
+      background: linear-gradient(to bottom, var(--neon), transparent);
+      margin-top: 0;
+    }
+
+    .ar-label-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--neon);
+      box-shadow: 0 0 8px var(--neon);
+      margin-top: -1px;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.5); opacity: 0.6; }
+    }
+
+    /* ── HUD ── */
+    #hud {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 30;
+      padding: 20px 20px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      pointer-events: none;
+    }
+
+    #compass-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      pointer-events: all;
+    }
+
+    #compass {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      border: 1px solid var(--glass-border);
+      background: var(--glass);
+      backdrop-filter: blur(12px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    #compass-needle {
+      width: 3px;
+      height: 22px;
+      border-radius: 2px;
+      background: linear-gradient(to top, rgba(255,255,255,0.3), var(--neon2));
+      transform-origin: bottom center;
+      position: absolute;
+      bottom: 50%;
+      left: 50%;
+      margin-left: -1.5px;
+      transition: transform 0.3s ease;
+    }
+
+    #compass-dir {
+      font-family: 'Space Mono', monospace;
+      font-size: 11px;
+      color: var(--neon);
+      letter-spacing: 0.1em;
+    }
+
+    #app-title {
+      font-family: 'Syne', sans-serif;
+      font-weight: 800;
+      font-size: 18px;
+      letter-spacing: 0.05em;
+      color: #fff;
+      text-shadow: 0 0 20px rgba(0,255,224,0.5);
+    }
+
+    #app-subtitle {
+      font-family: 'Space Mono', monospace;
+      font-size: 9px;
+      color: var(--neon);
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      text-align: right;
+      opacity: 0.7;
+      margin-top: 2px;
+    }
+
+    /* ── BOTTOM BAR ── */
+    #bottom-bar {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      z-index: 30;
+      padding: 16px 20px 32px;
+      background: linear-gradient(to top, rgba(5,10,14,0.9) 0%, transparent 100%);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    #location-info {
+      flex: 1;
+    }
+
+    #location-label {
+      font-family: 'Space Mono', monospace;
+      font-size: 9px;
+      color: var(--neon);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      opacity: 0.7;
+    }
+
+    #location-coords {
+      font-family: 'Space Mono', monospace;
+      font-size: 11px;
+      color: rgba(255,255,255,0.6);
+      margin-top: 2px;
+    }
+
+    #places-count {
+      font-family: 'Syne', sans-serif;
+      font-weight: 800;
+      font-size: 13px;
+      color: var(--neon);
+      background: rgba(0,255,224,0.08);
+      border: 1px solid var(--glass-border);
+      border-radius: 20px;
+      padding: 6px 14px;
+    }
+
+    /* ── STATUS / PERMISSION SCREEN ── */
+    #status-screen {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background: var(--dark);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      padding: 40px;
+      text-align: center;
+    }
+
+    .status-icon {
+      font-size: 52px;
+      animation: floatIcon 3s ease-in-out infinite;
+    }
+
+    @keyframes floatIcon {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-10px); }
+    }
+
+    .status-title {
+      font-size: 28px;
+      font-weight: 800;
+      background: linear-gradient(135deg, #fff, var(--neon));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1.2;
+    }
+
+    .status-sub {
+      font-family: 'Space Mono', monospace;
+      font-size: 12px;
+      color: rgba(255,255,255,0.5);
+      line-height: 1.8;
+      max-width: 300px;
+    }
+
+    .status-btn {
+      background: var(--neon);
+      color: var(--dark);
+      border: none;
+      border-radius: 12px;
+      padding: 14px 32px;
+      font-family: 'Syne', sans-serif;
+      font-weight: 800;
+      font-size: 15px;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 0 30px rgba(0,255,224,0.3);
+    }
+
+    .status-btn:hover {
+      transform: scale(1.04);
+      box-shadow: 0 0 50px rgba(0,255,224,0.5);
+    }
+
+    /* ── DETAIL CARD (tap on label) ── */
+    #detail-card {
+      position: fixed;
+      bottom: 90px;
+      left: 20px; right: 20px;
+      z-index: 50;
+      background: var(--glass);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--glass-border);
+      border-radius: 20px;
+      padding: 20px;
+      display: none;
+      animation: slideUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    #detail-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 20px; right: 20px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--neon), transparent);
+    }
+
+    #detail-name {
+      font-size: 22px;
+      font-weight: 800;
+      margin-bottom: 4px;
+    }
+
+    #detail-meta {
+      font-family: 'Space Mono', monospace;
+      font-size: 10px;
+      color: var(--neon);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 12px;
+    }
+
+    #detail-dist-bar {
+      background: rgba(0,255,224,0.08);
+      border-radius: 8px;
+      padding: 10px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    #detail-dist-label {
+      font-family: 'Space Mono', monospace;
+      font-size: 10px;
+      color: rgba(255,255,255,0.5);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    #detail-dist-val {
+      font-family: 'Syne', sans-serif;
+      font-weight: 800;
+      font-size: 16px;
+      color: var(--neon);
+    }
+
+    #detail-close {
+      position: absolute;
+      top: 16px; right: 16px;
+      background: rgba(255,255,255,0.08);
+      border: none;
+      border-radius: 50%;
+      width: 32px; height: 32px;
+      color: #fff;
+      font-size: 16px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    /* ── SCANNING ANIMATION ── */
+    #scan-line {
+      position: fixed;
+      left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--neon), transparent);
+      z-index: 15;
+      opacity: 0.4;
+      animation: scanMove 4s linear infinite;
+      pointer-events: none;
+    }
+
+    @keyframes scanMove {
+      0%   { top: 0%; }
+      100% { top: 100%; }
+    }
+
+    /* ── CORNER BRACKETS ── */
+    .corner {
+      position: fixed;
+      z-index: 15;
+      width: 30px; height: 30px;
+      pointer-events: none;
+      opacity: 0.4;
+    }
+    .corner-tl { top: 80px; left: 16px; border-top: 2px solid var(--neon); border-left: 2px solid var(--neon); }
+    .corner-tr { top: 80px; right: 16px; border-top: 2px solid var(--neon); border-right: 2px solid var(--neon); }
+    .corner-bl { bottom: 80px; left: 16px; border-bottom: 2px solid var(--neon); border-left: 2px solid var(--neon); }
+    .corner-br { bottom: 80px; right: 16px; border-bottom: 2px solid var(--neon); border-right: 2px solid var(--neon); }
+
+    /* ── FOV INDICATOR ── */
+    #fov-bar {
+      position: fixed;
+      top: 90px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 25;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      pointer-events: none;
+    }
+
+    #fov-track {
+      width: 180px;
+      height: 3px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 2px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #fov-indicator {
+      position: absolute;
+      top: 0;
+      height: 100%;
+      width: 40%;
+      background: linear-gradient(90deg, transparent, var(--neon), transparent);
+      border-radius: 2px;
+      transition: left 0.1s ease;
+    }
+
+    #fov-label {
+      font-family: 'Space Mono', monospace;
+      font-size: 9px;
+      color: rgba(255,255,255,0.4);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    /* Demo mode badge */
+    #demo-badge {
+      position: fixed;
+      top: 90px;
+      right: 16px;
+      z-index: 35;
+      background: rgba(255,0,110,0.15);
+      border: 1px solid rgba(255,0,110,0.4);
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-family: 'Space Mono', monospace;
+      font-size: 8px;
+      color: var(--neon2);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Camera -->
+<video id="camera-feed" autoplay playsinline muted></video>
+
+<!-- Scan line -->
+<div id="scan-line"></div>
+
+<!-- Corner brackets -->
+<div class="corner corner-tl"></div>
+<div class="corner corner-tr"></div>
+<div class="corner corner-bl"></div>
+<div class="corner corner-br"></div>
+
+<!-- FOV bar -->
+<div id="fov-bar">
+  <span id="fov-label">Scanning</span>
+  <div id="fov-track"><div id="fov-indicator"></div></div>
+</div>
+
+<!-- Demo badge -->
+<div id="demo-badge">Demo Mode</div>
+
+<!-- HUD -->
+<div id="hud">
+  <div id="compass-wrap">
+    <div id="compass">
+      <div id="compass-needle"></div>
+    </div>
+    <div id="compass-dir">N</div>
+  </div>
+  <div>
+    <div id="app-title">AR Explorer</div>
+    <div id="app-subtitle">Point. Discover. Explore.</div>
+  </div>
+</div>
+
+<!-- AR Labels -->
+<div id="labels-container"></div>
+
+<!-- Bottom Bar -->
+<div id="bottom-bar">
+  <div id="location-info">
+    <div id="location-label">Your Location</div>
+    <div id="location-coords">Acquiring GPS...</div>
+  </div>
+  <div id="places-count">0 places</div>
+</div>
+
+<!-- Detail Card -->
+<div id="detail-card">
+  <button id="detail-close">✕</button>
+  <div id="detail-name">–</div>
+  <div id="detail-meta">–</div>
+  <div id="detail-dist-bar">
+    <span id="detail-dist-label">Distance</span>
+    <span id="detail-dist-val">–</span>
+  </div>
+</div>
+
+<!-- Status / Permission Screen -->
+<div id="status-screen">
+  <div class="status-icon">🔭</div>
+  <div class="status-title">AR Explorer</div>
+  <div class="status-sub">
+    Point your camera at buildings around you and instantly discover what they are.
+    <br><br>
+    We need access to your <strong style="color:#00ffe0">camera</strong>, <strong style="color:#00ffe0">location</strong>, and <strong style="color:#00ffe0">compass</strong>.
+  </div>
+  <button class="status-btn" id="start-btn">Start Exploring</button>
+  <div class="status-sub" style="font-size:10px; opacity:0.4; margin-top:-8px">
+    All data stays on your device. Nothing is stored.
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+//  CONFIG  — paste your Google Places API key
+// ─────────────────────────────────────────────
+const GOOGLE_API_KEY = 'AIzaSyB0MolCgpg3US6JN21GYrHMGXT3gVAclZ0';
+const USE_DEMO_MODE  = GOOGLE_API_KEY === 'AIzaSyB0MolCgpg3US6JN21GYrHMGXT3gVAclZ0';
+
+// ─────────────────────────────────────────────
+//  STATE
+// ─────────────────────────────────────────────
+let userLat = null, userLng = null;
+let heading = 0;          // degrees, 0=North, 90=East …
+let places  = [];         // [{name, type, lat, lng, dist, bearing}]
+let animFrame = null;
+const HFOV = 60;          // horizontal field-of-view of phone camera (degrees)
+
+// ─────────────────────────────────────────────
+//  DEMO PLACES (used when no API key)
+// ─────────────────────────────────────────────
+function getDemoPlaces(lat, lng) {
+  const offsets = [
+    { name: 'Seattle Tower',        type: 'Landmark',    dlat:  0.003, dlng:  0.001 },
+    { name: 'Pike Place Market',    type: 'Market',      dlat: -0.002, dlng:  0.004 },
+    { name: 'The Coffee Spot',      type: 'Café',        dlat:  0.001, dlng: -0.003 },
+    { name: 'Cloud Nine Rooftop',   type: 'Bar',         dlat:  0.004, dlng:  0.002 },
+    { name: 'Central Library',      type: 'Library',     dlat: -0.001, dlng: -0.002 },
+    { name: 'Emerald Hotel',        type: 'Hotel',       dlat:  0.005, dlng: -0.001 },
+    { name: 'Harbor View Office',   type: 'Office',      dlat: -0.003, dlng:  0.003 },
+    { name: 'Pixel Art Gallery',    type: 'Gallery',     dlat:  0.002, dlng: -0.005 },
+  ];
+  return offsets.map(o => {
+    const plat = lat + o.dlat, plng = lng + o.dlng;
+    return {
+      name: o.name,
+      type: o.type,
+      lat: plat,
+      lng: plng,
+      dist: haversine(lat, lng, plat, plng),
+      bearing: bearing(lat, lng, plat, plng),
+    };
+  });
+}
+
+// ─────────────────────────────────────────────
+//  MATH HELPERS
+// ─────────────────────────────────────────────
+function toRad(d) { return d * Math.PI / 180; }
+function toDeg(r) { return r * 180 / Math.PI; }
+
+function haversine(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function bearing(lat1, lng1, lat2, lng2) {
+  const dLng = toRad(lng2 - lng1);
+  const x = Math.sin(dLng) * Math.cos(toRad(lat2));
+  const y = Math.cos(toRad(lat1))*Math.sin(toRad(lat2)) - Math.sin(toRad(lat1))*Math.cos(toRad(lat2))*Math.cos(dLng);
+  return (toDeg(Math.atan2(x, y)) + 360) % 360;
+}
+
+function angleDiff(a, b) {
+  let d = ((a - b) + 180) % 360 - 180;
+  if (d < -180) d += 360;
+  return d;
+}
+
+function formatDist(m) {
+  return m >= 1000 ? (m/1000).toFixed(1)+' km' : Math.round(m)+' m';
+}
+
+function directionLabel(deg) {
+  const dirs = ['N','NE','E','SE','S','SW','W','NW','N'];
+  return dirs[Math.round(deg / 45) % 8];
+}
+
+// ─────────────────────────────────────────────
+//  FETCH PLACES (Google or Demo)
+// ─────────────────────────────────────────────
+async function fetchPlaces(lat, lng) {
+  if (USE_DEMO_MODE) {
+    places = getDemoPlaces(lat, lng);
+    document.getElementById('demo-badge').style.display = 'block';
+    updatePlacesCount();
+    return;
+  }
+
+  const radius = 500;
+  const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=${radius}&key=${GOOGLE_API_KEY}`;
+  try {
+    const res  = await fetch(url);
+    const data = await res.json();
+    places = (data.results || []).slice(0, 15).map(p => ({
+      name:    p.name,
+      type:    (p.types?.[0] || 'place').replace(/_/g,' '),
+      lat:     p.geometry.location.lat,
+      lng:     p.geometry.location.lng,
+      dist:    haversine(lat, lng, p.geometry.location.lat, p.geometry.location.lng),
+      bearing: bearing(lat, lng, p.geometry.location.lat, p.geometry.location.lng),
+    }));
+    updatePlacesCount();
+  } catch(e) {
+    console.error('Places fetch failed:', e);
+    // Fallback to demo
+    places = getDemoPlaces(lat, lng);
+    document.getElementById('demo-badge').style.display = 'block';
+    updatePlacesCount();
+  }
+}
+
+function updatePlacesCount() {
+  document.getElementById('places-count').textContent = places.length + ' places';
+}
+
+// ─────────────────────────────────────────────
+//  LABEL RENDERING
+// ─────────────────────────────────────────────
+const labelsContainer = document.getElementById('labels-container');
+let labelEls = {};
+
+function renderLabels() {
+  const W = window.innerWidth;
+  const H = window.innerHeight;
+  const visibleIds = new Set();
+
+  places.forEach((p, i) => {
+    const id = 'place-' + i;
+    const diff = angleDiff(p.bearing, heading);
+
+    // Is it in camera FOV?
+    if (Math.abs(diff) > HFOV / 2) {
+      if (labelEls[id]) {
+        labelEls[id].remove();
+        delete labelEls[id];
+      }
+      return;
+    }
+
+    visibleIds.add(id);
+
+    // X: map angle diff to screen X
+    const x = W/2 + (diff / (HFOV/2)) * (W/2);
+
+    // Y: simulate depth — closer = lower on screen (more grounded)
+    const maxDist = 1000;
+    const distRatio = Math.min(p.dist, maxDist) / maxDist; // 0=close, 1=far
+    const y = H * 0.35 + distRatio * H * 0.25;
+
+    if (!labelEls[id]) {
+      const el = document.createElement('div');
+      el.className = 'ar-label';
+      el.id = id;
+      el.innerHTML = `
+        <div class="ar-label-card">
+          <div class="ar-label-name">${p.name}</div>
+          <div class="ar-label-type">${p.type}</div>
+          <div class="ar-label-dist">${formatDist(p.dist)}</div>
+        </div>
+        <div class="ar-label-stem"></div>
+        <div class="ar-label-dot"></div>
+      `;
+      el.addEventListener('click', () => showDetail(p));
+      labelsContainer.appendChild(el);
+      labelEls[id] = el;
+    }
+
+    const el = labelEls[id];
+    el.style.left = x + 'px';
+    el.style.top  = y + 'px';
+  });
+
+  // Remove labels that left FOV
+  Object.keys(labelEls).forEach(id => {
+    if (!visibleIds.has(id)) {
+      labelEls[id].remove();
+      delete labelEls[id];
+    }
+  });
+
+  animFrame = requestAnimationFrame(renderLabels);
+}
+
+// ─────────────────────────────────────────────
+//  DETAIL CARD
+// ─────────────────────────────────────────────
+function showDetail(p) {
+  document.getElementById('detail-name').textContent = p.name;
+  document.getElementById('detail-meta').textContent = p.type.toUpperCase() + ' · ' + directionLabel(p.bearing);
+  document.getElementById('detail-dist-val').textContent = formatDist(p.dist);
+  document.getElementById('detail-card').style.display = 'block';
+}
+
+document.getElementById('detail-close').addEventListener('click', () => {
+  document.getElementById('detail-card').style.display = 'none';
+});
+
+// ─────────────────────────────────────────────
+//  COMPASS
+// ─────────────────────────────────────────────
+function updateCompass(h) {
+  document.getElementById('compass-needle').style.transform = `rotate(${-h}deg)`;
+  document.getElementById('compass-dir').textContent = directionLabel(h);
+
+  // FOV indicator
+  const pct = (h % 360) / 360;
+  document.getElementById('fov-indicator').style.left = (pct * 60) + '%';
+}
+
+// ─────────────────────────────────────────────
+//  DEVICE ORIENTATION
+// ─────────────────────────────────────────────
+function initOrientation() {
+  const handler = (e) => {
+    let h = 0;
+    if (e.webkitCompassHeading !== undefined) {
+      h = e.webkitCompassHeading; // iOS
+    } else if (e.alpha !== null) {
+      h = 360 - e.alpha;          // Android
+    }
+    heading = h;
+    updateCompass(h);
+  };
+
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    // iOS 13+
+    DeviceOrientationEvent.requestPermission()
+      .then(state => { if (state === 'granted') window.addEventListener('deviceorientationabsolute', handler, true); })
+      .catch(console.error);
+  } else {
+    window.addEventListener('deviceorientationabsolute', handler, true);
+    window.addEventListener('deviceorientation', handler, true);
+  }
+
+  // Simulate heading if device doesn't support it (desktop demo)
+  let simHeading = 0;
+  setInterval(() => {
+    if (places.length > 0 && Object.keys(labelEls).length === 0) {
+      // Slowly rotate simulated heading so labels become visible
+      simHeading = (simHeading + 0.5) % 360;
+      heading = simHeading;
+      updateCompass(simHeading);
+    }
+  }, 50);
+}
+
+// ─────────────────────────────────────────────
+//  GPS
+// ─────────────────────────────────────────────
+function initGPS() {
+  if (!navigator.geolocation) {
+    document.getElementById('location-coords').textContent = 'GPS not supported';
+    return;
+  }
+  navigator.geolocation.watchPosition(pos => {
+    const { latitude: lat, longitude: lng } = pos.coords;
+    if (userLat === null) {
+      userLat = lat; userLng = lng;
+      fetchPlaces(lat, lng);
+    }
+    userLat = lat; userLng = lng;
+    document.getElementById('location-coords').textContent =
+      lat.toFixed(5) + ', ' + lng.toFixed(5);
+    // Refresh bearing/dist
+    places.forEach(p => {
+      p.dist    = haversine(lat, lng, p.lat, p.lng);
+      p.bearing = bearing(lat, lng, p.lat, p.lng);
+    });
+  }, err => {
+    console.warn('GPS error:', err);
+    // Use a default location for demo (Seattle)
+    userLat = 47.6062; userLng = -122.3321;
+    document.getElementById('location-coords').textContent = 'Demo location (Seattle)';
+    fetchPlaces(userLat, userLng);
+  }, { enableHighAccuracy: true, maximumAge: 5000 });
+}
+
+// ─────────────────────────────────────────────
+//  CAMERA
+// ─────────────────────────────────────────────
+async function initCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+      audio: false
+    });
+    document.getElementById('camera-feed').srcObject = stream;
+  } catch(e) {
+    console.warn('Camera not available:', e);
+    // Dark background will show — still demo-able
+    document.getElementById('camera-feed').style.background =
+      'radial-gradient(ellipse at 30% 40%, #0a2a1a, #050a0e)';
+  }
+}
+
+// ─────────────────────────────────────────────
+//  START
+// ─────────────────────────────────────────────
+document.getElementById('start-btn').addEventListener('click', async () => {
+  document.getElementById('status-screen').style.display = 'none';
+  await initCamera();
+  initGPS();
+  initOrientation();
+  renderLabels();
+});
+</script>
+</body>
+</html>
